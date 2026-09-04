@@ -98,6 +98,7 @@ COPY --from=builder /opt/piper_phonemize/lib/ /usr/local/lib/
 COPY --from=builder /opt/piper_phonemize/share/espeak-ng-data/ /opt/paroli/build/espeak-ng-data/
 COPY --from=builder /usr/lib/librknnrt.so /usr/lib/librknnrt.so
 
+COPY models/*.tar.gz /opt/paroli/models/
 COPY docker/entrypoint.sh /usr/local/bin/paroli-entrypoint
 
 RUN chmod 0755 \
@@ -107,7 +108,8 @@ RUN chmod 0755 \
     && ldconfig
 
 ENV IP_ADDRESS=0.0.0.0 \
-    MODEL_DIR=/models/en \
+    LANGUAGE=pt_br \
+    MODEL_DIR=/models \
     PORT=8848
 
 WORKDIR /opt/paroli/build

@@ -11,47 +11,46 @@ if [ ! -d /dev/dri ]; then
     exit 1
 fi
 
-MODEL_REVISION="5f25612f4bd92ee7308b4c8845b65ac90fda329b"
-MODEL_BASE_URL="${MODEL_BASE_URL:-https://huggingface.co/thanhtantran/piper-paroli-rknn-model/resolve/${MODEL_REVISION}}"
+MODEL_DIR="${MODEL_DIR:-/models}"
 
-download_model() {
-    filename="$1"
-    expected_sha256="$2"
-    destination="${MODEL_DIR}/${filename}"
+# Resolve LANGUAGE variable to standardized folder name
+RAW_LANG="${LANGUAGE:-pt_br}"
+case "$RAW_LANG" in
+    pt|pt_br|pt-br|portuguese)
+        LANG_FOLDER="pt_br"
+        ;;
+    en|en_us|en-us|english)
+        LANG_FOLDER="en_us"
+        ;;
+    zh|zh_cn|zh-cn|chinese)
+        LANG_FOLDER="zh_cn"
+        ;;
+    de|de_de|de-de|german)
+        LANG_FOLDER="de_de"
+        ;;
+    fr|fr_fr|fr-fr|french)
+        LANG_FOLDER="fr_fr"
+        ;;
+    *)
+        LANG_FOLDER="$RAW_LANG"
+        ;;
+esac
 
-    if [ -f "$destination" ]; then
-        if echo "${expected_sha256}  ${destination}" | sha256sum -c - >/dev/null 2>&1; then
-            echo "Using verified model file: ${destination}"
-            return
-        fi
+# Auto-unpack model archive if target language folder is missing
+TARGET_LANG_DIR="${MODEL_DIR}/${LANG_FOLDER}"
+MODEL_ARCHIVE="/opt/paroli/models/${LANG_FOLDER}.tar.gz"
 
-        echo "ERROR: Existing model file has the wrong checksum: ${destination}" >&2
-        echo "Move it aside manually if you want the pinned file to be downloaded." >&2
-        exit 1
-    fi
-
-    temporary="${destination}.part"
-    echo "Downloading pinned model file: ${filename}"
-    curl -fL --retry 3 -o "$temporary" "${MODEL_BASE_URL}/${filename}"
-
-    if ! echo "${expected_sha256}  ${temporary}" | sha256sum -c - >/dev/null 2>&1; then
-        echo "ERROR: Checksum verification failed for ${filename}" >&2
-        rm -f "$temporary"
-        exit 1
-    fi
-
-    mv "$temporary" "$destination"
-}
+if [ ! -d "$TARGET_LANG_DIR" ] && [ -f "$MODEL_ARCHIVE" ]; then
+    echo "Decompressing model archive '${LANG_FOLDER}.tar.gz' into ${MODEL_DIR} ..."
+    mkdir -p "$MODEL_DIR"
+    tar -xzf "$MODEL_ARCHIVE" -C "$MODEL_DIR"
+    echo "Decompression complete."
+fi
 
 if [ -z "${ENCODER_PATH:-}" ] && [ -z "${DECODER_PATH:-}" ] && [ -z "${CONFIG_PATH:-}" ]; then
-    mkdir -p "$MODEL_DIR"
-    download_model "encoder-en.onnx" "63f4cc713c35c8c896f00a39edad3374932180863a089724fcfda1a7e2f6f08c"
-    download_model "decoder-en-3566.rknn" "e2cc7fe81dc61f35dfd9d00e1707e3f9f5eca53b39f9161cfbb3fc797989face"
-    download_model "config-en.json" "f83744ff6aa6138ebade1357b65b3f8456bc00b9edb913ab78674eb323ca32d0"
-
-    ENCODER_PATH="${MODEL_DIR}/encoder-en.onnx"
-    DECODER_PATH="${MODEL_DIR}/decoder-en-3566.rknn"
-    CONFIG_PATH="${MODEL_DIR}/config-en.json"
+    ENCODER_PATH="${TARGET_LANG_DIR}/encoder.onnx"
+    DECODER_PATH="${TARGET_LANG_DIR}/decoder-3566.rknn"
+    CONFIG_PATH="${TARGET_LANG_DIR}/config.json"
 elif [ -z "${ENCODER_PATH:-}" ] || [ -z "${DECODER_PATH:-}" ] || [ -z "${CONFIG_PATH:-}" ]; then
     echo "ERROR: Set ENCODER_PATH, DECODER_PATH, and CONFIG_PATH together." >&2
     exit 1
@@ -60,9 +59,15 @@ fi
 for required_file in "$ENCODER_PATH" "$DECODER_PATH" "$CONFIG_PATH"; do
     if [ ! -r "$required_file" ]; then
         echo "ERROR: Model file is not readable: ${required_file}" >&2
+        echo "Available languages: pt_br, en_us, zh_cn, de_de, fr_fr" >&2
         exit 1
     fi
 done
+
+echo "Starting Paroli TTS Server with language '${LANG_FOLDER}'..."
+echo "  Encoder: ${ENCODER_PATH}"
+echo "  Decoder: ${DECODER_PATH}"
+echo "  Config:  ${CONFIG_PATH}"
 
 set -- /opt/paroli/build/paroli-server \
     --encoder "$ENCODER_PATH" \
