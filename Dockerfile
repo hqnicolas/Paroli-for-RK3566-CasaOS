@@ -17,19 +17,28 @@ RUN apt-get update \
         cmake \
         curl \
         g++ \
+        libbrotli-dev \
         libdrogon-dev \
         libfmt-dev \
+        libhiredis-dev \
         libjsoncpp-dev \
+        libmariadb-dev \
+        libmariadb-dev-compat \
         libogg-dev \
         libopus-dev \
         libopusenc-dev \
+        libpq-dev \
         libsoxr-dev \
         libspdlog-dev \
+        libsqlite3-dev \
         libxtensor-dev \
+        libyaml-cpp-dev \
         make \
         nlohmann-json3-dev \
         patch \
         pkg-config \
+        uuid-dev \
+        zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl -fL --retry 3 \
