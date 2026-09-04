@@ -1,0 +1,3 @@
+services:
+  paroli-rknn:
+    restart: unless-stopped

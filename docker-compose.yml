@@ -1,0 +1,30 @@
+name: paroli-rknn
+
+services:
+  paroli-rknn:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: paroli-rknn:rk3566
+    container_name: paroli-rknn
+    platform: linux/arm64
+    ports:
+      - "${PAROLI_PORT:-8848}:8848"
+    environment:
+      IP_ADDRESS: 0.0.0.0
+      MODEL_DIR: /models/en
+      PORT: 8848
+    volumes:
+      - /dev/dri:/dev/dri
+      - /DATA/AppData/paroli/models:/models
+      - /DATA/AppData/paroli/data:/data
+    device_cgroup_rules:
+      - "c 226:* rmw"
+    init: true
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--show-error", "http://127.0.0.1:8848/api/v1/speakers"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+    restart: "${PAROLI_RESTART_POLICY:-no}"

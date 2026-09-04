@@ -1,0 +1,69 @@
+--- a/piper/rknn-inferer.cpp
++++ b/piper/rknn-inferer.cpp
+@@ -174,19 +174,21 @@ void RknnDecoderInferer::load(std::string modelPath, std::string accelerator)
+         throw std::runtime_error("rknn_init failed. Error code: " + std::to_string(ret));
+
+     // I don't know why, but duplicating the context seems to only work before start messing with the context.
+-    // 3 because the RK3588 has 3 NPU cores.
+-    rknn_context dup_ctx[3];
++    // RK3566 has one NPU core. Keep one context to serialize inference and bound CMA use.
++    constexpr size_t context_count = 1;
++    std::vector<rknn_context> dup_ctx(context_count);
+     dup_ctx[0] = ctx;
+-    for(int i = 1; i < 3; i++) {
++    for(size_t i = 1; i < context_count; i++) {
+         memset(&dup_ctx[i], 0, sizeof(dup_ctx[i]));
+         ret = rknn_dup_context(&ctx, &dup_ctx[i]);
+         if (ret != RKNN_SUCC)
+             throw std::runtime_error("rknn_dup_context failed. Error code: " + std::to_string(ret));
+     }
+
+-    for(int i = 0; i < 3; i++) {
++    impls.reserve(context_count);
++    for(size_t i = 0; i < context_count; i++) {
+         impls.emplace_back(RknnDecoderInfererImpl(dup_ctx[i]));
+     }
+
+-    implTracker = {0, 0, 0};
++    implTracker.assign(context_count, 0);
+ }
+@@ -194,27 +196,21 @@ void RknnDecoderInferer::load(std::string modelPath, std::string accelerator)
+ std::vector<int16_t> RknnDecoderInferer::infer(const xt::xarray<float>& z, const xt::xarray<float>& y_mask, const std::optional<xt::xarray<float>>& g)
+ {
+-    int idx = 0;
+-    do {
++    int idx;
++    {
+         std::unique_lock<std::mutex> lock(mtx);
++        cv.wait(lock, [this]() {
++            return std::find(implTracker.begin(), implTracker.end(), 0) != implTracker.end();
++        });
+         auto it = std::find(implTracker.begin(), implTracker.end(), 0);
+-        if (it != implTracker.end()) {
+-            idx = std::distance(implTracker.begin(), it);
+-            implTracker[idx] = 1;
+-            break;
+-        }
+-        cv.wait(lock, [this]() { return flag; });
+-        it = std::find(implTracker.begin(), implTracker.end(), 0);
+-        flag = false;
+-        assert(it != implTracker.end());
+         idx = std::distance(implTracker.begin(), it);
+-    } while(false);
+-    auto& inferer = impls[idx];
+-    auto ret = inferer.infer(z, y_mask, g);
+-    {
++        implTracker[idx] = 1;
++    }
++
++    Defer release_context([this, idx]() {
+         std::lock_guard<std::mutex> lock(mtx);
+         implTracker[idx] = 0;
+-        flag = true;
+         cv.notify_one();
+-    }
+-    return ret;
++    });
++
++    return impls[idx].infer(z, y_mask, g);
+ }
