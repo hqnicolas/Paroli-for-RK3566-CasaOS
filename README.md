@@ -6,9 +6,7 @@ decoder runs on the Rockchip NPU through `librknnrt`, using the host driver's CM
 allocations.
 
 The target contract is Linux ARM64, RKNPU driver 0.9.8, non-IOMMU operation,
-and a 1 GiB CMA reservation. Read the
-[compatibility decision](docs/compatibility-and-migration.md) and the
-[on-device rollout runbook](docs/on-device-rollout.md) before deployment.
+and a 1 GiB CMA reservation.
 
 ## Pinned components
 

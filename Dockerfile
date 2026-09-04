@@ -19,6 +19,7 @@ RUN apt-get update \
         g++ \
         libdrogon-dev \
         libfmt-dev \
+        libjsoncpp-dev \
         libogg-dev \
         libopus-dev \
         libopusenc-dev \
