@@ -1,8 +1,6 @@
 FROM ubuntu:24.04 AS builder
 
 ARG DEBIAN_FRONTEND=noninteractive
-ARG PAROLI_COMMIT=1fee2357e34ce2b4240692ec93a40c58bb5624c0
-ARG PAROLI_SHA256=074c97936dddaf5bf47a14e2ac192232fef9cdbb1f030af0ec7eea20e588d6f0
 ARG PIPER_PHONEMIZE_VERSION=2023.11.14-4
 ARG PIPER_PHONEMIZE_SHA256=f216660f6225a165155839110cd387947d69618f014f3d1c56729fdedb6557cc
 ARG RKNN_VERSION=2.3.0
@@ -35,19 +33,12 @@ RUN apt-get update \
         libyaml-cpp-dev \
         make \
         nlohmann-json3-dev \
-        patch \
         pkg-config \
         uuid-dev \
         zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl -fL --retry 3 \
-        -o /tmp/paroli.tar.gz \
-        "https://github.com/thanhtantran/paroli-on-orangepi/archive/${PAROLI_COMMIT}.tar.gz" \
-    && echo "${PAROLI_SHA256}  /tmp/paroli.tar.gz" | sha256sum -c - \
-    && mkdir -p /src/paroli \
-    && tar -xzf /tmp/paroli.tar.gz --strip-components=1 -C /src/paroli \
-    && rm /tmp/paroli.tar.gz
+COPY src/ /src/paroli/
 
 RUN curl -fL --retry 3 \
         -o /tmp/piper-phonemize.tar.gz \
@@ -65,10 +56,7 @@ RUN curl -fL --retry 3 \
         "https://raw.githubusercontent.com/airockchip/rknn-toolkit2/v${RKNN_VERSION}/rknpu2/runtime/Linux/librknn_api/include/rknn_api.h" \
     && echo "${RKNN_HEADER_SHA256}  /usr/include/rknn_api.h" | sha256sum -c -
 
-COPY patches/paroli-rk3566-single-context.patch /tmp/paroli-rk3566-single-context.patch
-
 RUN cd /src/paroli \
-    && patch -p1 < /tmp/paroli-rk3566-single-context.patch \
     && cmake -S . -B /src/paroli/build \
         -DCMAKE_BUILD_TYPE=Release \
         -DUSE_RKNN=ON \

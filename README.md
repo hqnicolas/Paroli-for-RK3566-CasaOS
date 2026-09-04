@@ -8,15 +8,15 @@ allocations.
 The target contract is Linux ARM64, RKNPU driver 0.9.8, non-IOMMU operation,
 and a 1 GiB CMA reservation.
 
-## Pinned components
+## Components
 
-- Paroli RK3566 fork commit `1fee2357e34ce2b4240692ec93a40c58bb5624c0`.
+- Self-contained Paroli TTS engine with built-in OpenAI API support (`/v1/audio/speech`, `/v1/models`, `/v1/audio/voices`).
 - Rockchip RKNN runtime and build header 2.3.0.
 - English model revision `5f25612f4bd92ee7308b4c8845b65ac90fda329b`.
 - RK3566 decoder compiled with RKNN Toolkit2 2.3.0.
 - One serialized RKNN context for the RK3566's single NPU core.
 
-Build and model downloads are pinned by revision and SHA-256. The entrypoint
+Model downloads are pinned by revision and SHA-256. The entrypoint
 does not overwrite an existing model with a different checksum.
 
 ## Staged deployment
