@@ -13,8 +13,12 @@ fi
 
 MODEL_DIR="${MODEL_DIR:-/models}"
 
-# Resolve LANGUAGE variable to standardized folder name
+# Resolve language names and locale values (for example, en_US.UTF-8) to the
+# standardized model folder name.
 RAW_LANG="${LANGUAGE:-pt_br}"
+RAW_LANG="${RAW_LANG%%.*}"
+RAW_LANG="${RAW_LANG%%@*}"
+RAW_LANG="$(printf '%s' "$RAW_LANG" | tr '[:upper:]' '[:lower:]')"
 case "$RAW_LANG" in
     pt|pt_br|pt-br|portuguese)
         LANG_FOLDER="pt_br"
@@ -36,16 +40,19 @@ case "$RAW_LANG" in
         ;;
 esac
 
-# Auto-unpack model archive if target language folder is missing
-TARGET_LANG_DIR="${MODEL_DIR}/${LANG_FOLDER}"
-MODEL_ARCHIVE="/opt/paroli/models/${LANG_FOLDER}.tar.gz"
+# Make every bundled language available in the shared model directory.
+mkdir -p "$MODEL_DIR"
+for MODEL_ARCHIVE in /opt/paroli/models/*.tar.gz; do
+    [ -f "$MODEL_ARCHIVE" ] || continue
+    ARCHIVE_NAME="${MODEL_ARCHIVE##*/}"
+    ARCHIVE_LANG="${ARCHIVE_NAME%.tar.gz}"
+    if [ ! -d "${MODEL_DIR}/${ARCHIVE_LANG}" ]; then
+        echo "Decompressing model archive '${ARCHIVE_NAME}' into ${MODEL_DIR} ..."
+        tar -xzf "$MODEL_ARCHIVE" -C "$MODEL_DIR"
+    fi
+done
 
-if [ ! -d "$TARGET_LANG_DIR" ] && [ -f "$MODEL_ARCHIVE" ]; then
-    echo "Decompressing model archive '${LANG_FOLDER}.tar.gz' into ${MODEL_DIR} ..."
-    mkdir -p "$MODEL_DIR"
-    tar -xzf "$MODEL_ARCHIVE" -C "$MODEL_DIR"
-    echo "Decompression complete."
-fi
+TARGET_LANG_DIR="${MODEL_DIR}/${LANG_FOLDER}"
 
 if [ -z "${ENCODER_PATH:-}" ] && [ -z "${DECODER_PATH:-}" ] && [ -z "${CONFIG_PATH:-}" ]; then
     ENCODER_PATH="${TARGET_LANG_DIR}/encoder.onnx"

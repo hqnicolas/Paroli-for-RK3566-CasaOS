@@ -12,7 +12,6 @@ services:
       - "${PAROLI_PORT:-8848}:8848"
     environment:
       IP_ADDRESS: 0.0.0.0
-      LANGUAGE: ${LANGUAGE:-pt_br}
       MODEL_DIR: /models
       PORT: 8848
     volumes:

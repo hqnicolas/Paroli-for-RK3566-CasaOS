@@ -79,7 +79,8 @@ That external-network observation cannot be proven by a script running on the
 device.
 
 Records and test audio are written to `/DATA/AppData/paroli/data`. Models are
-stored under `/DATA/AppData/paroli/models/en`.
+stored in language-specific directories under `/DATA/AppData/paroli/models`; all
+bundled language archives are unpacked automatically at container startup.
 
 ## CasaOS promotion
 
