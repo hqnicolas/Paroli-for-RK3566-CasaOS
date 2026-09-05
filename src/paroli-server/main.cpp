@@ -32,6 +32,8 @@
 #include "piper.hpp"
 
 #include <drogon/drogon.h>
+#include <memory>
+#include <mutex>
 
 using namespace std;
 using namespace drogon;
@@ -90,8 +92,71 @@ struct RunConfig {
 };
 
 piper::PiperConfig piperConfig;
-piper::Voice voice;
+std::shared_ptr<piper::Voice> voice;
 std::string authToken;
+
+struct ModelPaths {
+  filesystem::path encoder;
+  filesystem::path decoder;
+  filesystem::path config;
+};
+
+static std::map<std::string, ModelPaths> modelCatalog;
+static std::string activeLanguage;
+static std::mutex modelMutex;
+static RunConfig runtimeConfig;
+
+static void applyVoiceSettings(piper::Voice &selectedVoice) {
+  if (runtimeConfig.noiseScale)
+    selectedVoice.synthesisConfig.noiseScale = *runtimeConfig.noiseScale;
+  if (runtimeConfig.lengthScale)
+    selectedVoice.synthesisConfig.lengthScale = *runtimeConfig.lengthScale;
+  if (runtimeConfig.noiseW)
+    selectedVoice.synthesisConfig.noiseW = *runtimeConfig.noiseW;
+  if (runtimeConfig.sentenceSilenceSeconds)
+    selectedVoice.synthesisConfig.sentenceSilenceSeconds = *runtimeConfig.sentenceSilenceSeconds;
+  if (runtimeConfig.phonemeSilenceSeconds) {
+    if (!selectedVoice.synthesisConfig.phonemeSilenceSeconds)
+      selectedVoice.synthesisConfig.phonemeSilenceSeconds = runtimeConfig.phonemeSilenceSeconds;
+    else
+      for (const auto &[phoneme, silence] : *runtimeConfig.phonemeSilenceSeconds)
+        selectedVoice.synthesisConfig.phonemeSilenceSeconds->insert_or_assign(phoneme, silence);
+  }
+}
+
+std::vector<std::string> availableLanguages() {
+  std::lock_guard<std::mutex> lock(modelMutex);
+  std::vector<std::string> result;
+  for (const auto &[language, paths] : modelCatalog)
+    result.push_back(language);
+  return result;
+}
+
+std::string currentLanguage() {
+  std::lock_guard<std::mutex> lock(modelMutex);
+  return activeLanguage;
+}
+
+std::shared_ptr<piper::Voice> selectLanguage(const std::optional<std::string> &requested) {
+  std::lock_guard<std::mutex> lock(modelMutex);
+  if (!requested || requested->empty() || *requested == activeLanguage)
+    return voice;
+
+  auto found = modelCatalog.find(*requested);
+  if (found == modelCatalog.end())
+    throw std::runtime_error("Unknown language: " + *requested);
+
+  auto nextVoice = std::make_shared<piper::Voice>();
+  const auto &paths = found->second;
+  auto speakerId = runtimeConfig.speakerId;
+  spdlog::info("Loading language {}", *requested);
+  loadVoice(piperConfig, "", paths.encoder.string(), paths.decoder.string(),
+            paths.config.string(), *nextVoice, speakerId, runtimeConfig.accelerator);
+  applyVoiceSettings(*nextVoice);
+  voice = std::move(nextVoice);
+  activeLanguage = *requested;
+  return voice;
+}
 
 void parseArgs(int argc, char *argv[], RunConfig &runConfig);
 // ----------------------------------------------------------------------------
@@ -101,6 +166,7 @@ int main(int argc, char *argv[]) {
 
   RunConfig runConfig;
   parseArgs(argc, argv, runConfig);
+  runtimeConfig = runConfig;
 
 #ifdef _WIN32
   // Required on Windows to show IPA symbols
@@ -112,12 +178,28 @@ int main(int argc, char *argv[]) {
   spdlog::debug("Decoder model: {}", runConfig.decoderPath.string());
 
   auto startTime = chrono::steady_clock::now();
+  voice = std::make_shared<piper::Voice>();
   loadVoice(piperConfig, "", runConfig.encoderPath.string(), runConfig.decoderPath.string(),
-            runConfig.modelConfigPath.string(), voice, runConfig.speakerId,
+            runConfig.modelConfigPath.string(), *voice, runConfig.speakerId,
             runConfig.accelerator);
   auto endTime = chrono::steady_clock::now();
   spdlog::info("Loaded voice in {} second(s)",
                chrono::duration<double>(endTime - startTime).count());
+
+  const filesystem::path modelRoot = getenv("MODEL_DIR") ? getenv("MODEL_DIR") : "/models";
+  for (const auto &language : {"pt_br", "en_us", "zh_cn", "de_de", "fr_fr"}) {
+    ModelPaths paths{modelRoot / language / "encoder.onnx",
+                     modelRoot / language / "decoder-3566.rknn",
+                     modelRoot / language / "config.json"};
+    if (filesystem::is_regular_file(paths.encoder) &&
+        filesystem::is_regular_file(paths.decoder) &&
+        filesystem::is_regular_file(paths.config))
+      modelCatalog.emplace(language, std::move(paths));
+  }
+  activeLanguage = runConfig.encoderPath.parent_path().filename().string();
+  if (!modelCatalog.contains(activeLanguage) && !modelCatalog.empty())
+    activeLanguage = modelCatalog.begin()->first;
+  spdlog::info("Found {} language model(s)", modelCatalog.size());
 
   // Get the path to the piper executable so we can locate espeak-ng-data, etc.
   // next to it.
@@ -140,9 +222,9 @@ int main(int argc, char *argv[]) {
 #endif
 #endif
 
-  if (voice.phonemizeConfig.phonemeType == piper::eSpeakPhonemes) {
+  if (voice->phonemizeConfig.phonemeType == piper::eSpeakPhonemes) {
     spdlog::debug("Voice uses eSpeak phonemes ({})",
-                  voice.phonemizeConfig.eSpeak.voice);
+                  voice->phonemizeConfig.eSpeak.voice);
 
     if (runConfig.eSpeakDataPath) {
       // User provided path
@@ -186,39 +268,7 @@ int main(int argc, char *argv[]) {
 
   piper::initialize(piperConfig);
 
-  // Scales
-  if (runConfig.noiseScale) {
-    voice.synthesisConfig.noiseScale = runConfig.noiseScale.value();
-  }
-
-  if (runConfig.lengthScale) {
-    voice.synthesisConfig.lengthScale = runConfig.lengthScale.value();
-  }
-
-  if (runConfig.noiseW) {
-    voice.synthesisConfig.noiseW = runConfig.noiseW.value();
-  }
-
-  if (runConfig.sentenceSilenceSeconds) {
-    voice.synthesisConfig.sentenceSilenceSeconds =
-        runConfig.sentenceSilenceSeconds.value();
-  }
-
-  if (runConfig.phonemeSilenceSeconds) {
-    if (!voice.synthesisConfig.phonemeSilenceSeconds) {
-      // Overwrite
-      voice.synthesisConfig.phonemeSilenceSeconds =
-          runConfig.phonemeSilenceSeconds;
-    } else {
-      // Merge
-      for (const auto &[phoneme, silenceSeconds] :
-           *runConfig.phonemeSilenceSeconds) {
-        voice.synthesisConfig.phonemeSilenceSeconds->try_emplace(
-            phoneme, silenceSeconds);
-      }
-    }
-
-  } // if phonemeSilenceSeconds
+  applyVoiceSettings(*voice);
 
   char* authTokenEnv = getenv("PAROLI_TOKEN");
   if(authTokenEnv) {

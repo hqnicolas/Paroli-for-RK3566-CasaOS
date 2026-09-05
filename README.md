@@ -1,6 +1,6 @@
 # Paroli RKNN TTS server for RK3566 and CasaOS
 
-This project runs an English Piper/Paroli text-to-speech server on the captured
+This project runs a multilingual Piper/Paroli text-to-speech server on the captured
 RK3566 host. The encoder runs on the CPU through ONNX Runtime and the fixed-shape
 decoder runs on the Rockchip NPU through `librknnrt`, using the host driver's CMA
 allocations.
@@ -50,13 +50,14 @@ The trusted-LAN service listens on host port `8848` by default.
 curl --fail --show-error \
   --request POST http://DEVICE_IP:8848/api/v1/synthesise \
   --header 'Content-Type: application/json' \
-  --data '{"text":"Hello from the RK3566.","audio_format":"opus"}' \
+  --data '{"text":"Hello from the RK3566.","language":"en_us","audio_format":"opus"}' \
   --output hello.opus
 ```
 
 Public endpoints:
 
-- `POST /api/v1/synthesise` accepts `{"text":"…","audio_format":"opus"}`.
+- `GET /api/v1/languages` lists the installed languages and the active model.
+- `POST /api/v1/synthesise` accepts `{"text":"…","language":"en_us","audio_format":"opus"}`.
 - `GET /api/v1/speakers` is the health-check endpoint.
 - `ws://DEVICE_IP:8848/api/v1/stream` provides streaming synthesis.
 
@@ -80,7 +81,8 @@ device.
 
 Records and test audio are written to `/DATA/AppData/paroli/data`. Models are
 stored in language-specific directories under `/DATA/AppData/paroli/models`; all
-bundled language archives are unpacked automatically at container startup.
+bundled language archives are unpacked automatically at container startup and
+can be selected from the Web UI.
 
 ## CasaOS promotion
 

@@ -2,6 +2,17 @@
 
 ## REST APIs
 
+### /api/v1/languages
+
+* Method: GET
+* Parameters: None
+
+Returns the installed model languages and the currently active language.
+
+```json
+{"languages":["de_de","en_us","fr_fr","pt_br","zh_cn"],"active":"pt_br"}
+```
+
 ### /api/v1/speakers
 
 * Method: GET
@@ -41,13 +52,14 @@ Returns a mapping from speaker name to speaker ID
 ### /api/v1/synthesise
 
 * Method: POST
-* Parameters: A JSON object denoting the text and (optional) speaker
+* Parameters: A JSON object denoting the text, language, and optional speaker
 * Response: `audio/ogg; codecs=opus` or `audio/raw`
 
 example request body:
 ```json
 {
     "text": "How can I help you? Is there anything wrong?",
+    "language": "en_us",
     "speaker_id": 8,
 	"audio_format": "opus"
 }
@@ -55,6 +67,7 @@ example request body:
 
 The fields are as follows:
 * text - Text for the TTS engine to synthesize
+* language - Installed model language, such as `en_us` or `pt_br`
 * speaker_id - ID of the speaker if using a multi speaker model
 * audio_format - Format of the resulting audio. Valid options are:
    * `pcm` - 16bit Little Endian PCM audio of the model's native sample rate
@@ -66,6 +79,7 @@ The following is the full structure of the request JSON (in C++).
 struct ApiData
 {
     std::string text;
+    std::optional<std::string> language;
     std::optional<uint64_t> speaker_id;
     std::optional<float> length_scale;
     std::optional<float> noise_scale;

@@ -3,23 +3,41 @@ var ttsSocketURL = (window.location.toString().replace('http', 'ws') + 'api/v1/s
 var pcmplayer_opt = {
      encoding: '16bitInt',
      channels: 1,
-     sampleRate: 22500,
+     sampleRate: 22050,
      flushingTime: 100
 }
 var player;
 
 window.onload = function () {
+    const languageNames = {
+        pt_br: 'Portuguese (Brazil)',
+        en_us: 'English (US)',
+        zh_cn: 'Chinese (Mandarin)',
+        de_de: 'German',
+        fr_fr: 'French'
+    }
+    let languageList = document.getElementById('language_select')
+    fetch('/api/v1/languages').then(function (response) {
+        return response.json();
+    }).then(function (data) {
+        data.languages.forEach(function (language) {
+            let option = document.createElement('option')
+            option.value = language
+            option.text = languageNames[language] || language
+            languageList.appendChild(option)
+        })
+        languageList.value = data.active
+    }).catch(function (error) {
+        console.error('Unable to load languages', error)
+    })
     let speaker_list = document.getElementById('speaker_select')
-    let speaker_select_label = document.getElementById('speaker_select_label')
     fetch('/api/v1/speakers').then(function (response) {
         return response.json();
     }).then(function (data) {
         let default_speaker = null
-        // if no speaker is available (i.e. single speaker model), disable the select
+        // Single-speaker models do not need a second selector.
         if(Object.keys(data).length == 0) {
-            speaker_list.disabled = true
-            speaker_select_label.innerHTML = 'Speaker (disabled for single speaker models):'
-            speaker_select_label.classList.add('greyout-text')
+            document.getElementById('speaker_controls').style.display = 'none'
             return
         }
         for(let key in data) {
@@ -39,8 +57,10 @@ window.onload = function () {
 function runTTS() {
     let str = document.getElementById('txt_input').value
     let speaker = document.getElementById('speaker_select').value
+    let language = document.getElementById('language_select').value
     let data = JSON.stringify({
         text: str,
+        language: language,
         speaker_id: parseInt(speaker),
         audio_format: 'pcm'
     })

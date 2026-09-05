@@ -6,6 +6,7 @@
 #include <span>
 #include <bit>
 #include <atomic>
+#include <memory>
 #include <coroutine>
 #include <cmath>
 
@@ -16,16 +17,18 @@
 
 using namespace drogon;
 extern piper::PiperConfig piperConfig;
-extern piper::Voice voice;
+extern std::vector<std::string> availableLanguages();
+extern std::string currentLanguage();
+extern std::shared_ptr<piper::Voice> selectLanguage(const std::optional<std::string> &requested);
 extern std::string authToken;
 
 static constexpr size_t MAX_TEXT_LENGTH = 64 * 1024; // 64 KiB
-trantor::EventLoopThreadPool synthesizerThreadPool(3, "synehesizer thread pool");
+trantor::EventLoopThreadPool synthesizerThreadPool(1, "synthesizer thread pool");
 
 template<typename Func>
 requires std::is_invocable_v<Func, const std::span<const short>>
 [[nodiscard]]
-auto speak(const std::string& text, std::optional<size_t> speaker_id, Func cb, std::optional<float> length_scale
+auto speak(piper::Voice& selectedVoice, const std::string& text, std::optional<size_t> speaker_id, Func cb, std::optional<float> length_scale
         , std::optional<float> noise_scale, std::optional<float> noise_w) -> bool
 {
     std::vector<short> audioBuffer;
@@ -36,7 +39,7 @@ auto speak(const std::string& text, std::optional<size_t> speaker_id, Func cb, s
     };
 
     try {
-        piper::textToAudio(piperConfig, voice, text, audioBuffer, result, callback, speaker_id,
+        piper::textToAudio(piperConfig, selectedVoice, text, audioBuffer, result, callback, speaker_id,
             noise_scale, length_scale, noise_w);
     }
     catch(const std::exception& e) {
@@ -54,6 +57,8 @@ struct SynthesisApiParams
     std::optional<float> noise_scale;
     std::optional<float> noise_w;
     std::optional<std::string> audio_format;
+    std::optional<std::string> language;
+    std::optional<std::string> speaker;
 };
 
 static std::string replaceAll(std::string_view str, std::string_view from, std::string_view to)
@@ -137,15 +142,12 @@ SynthesisApiParams parseSynthesisApiParams(const std::string_view json_txt)
         throw std::runtime_error("Text too long");
     if(json.contains("speaker_id") && json["speaker_id"].is_null() == false)
         res.speaker_id = json["speaker_id"].get<int64_t>();
-    if(json.contains("speaker")) {
-        const auto& speaker_id_map = voice.modelConfig.speakerIdMap;
-        auto speaker = json["speaker"].get<std::string>();
-        if(speaker_id_map.has_value() == false)
-            throw std::runtime_error("Speaker ID map is not available");
-
-        if(!speaker_id_map->contains(speaker))
-            throw std::runtime_error("Unknown speaker name " + speaker);
-        res.speaker_id = speaker_id_map->at(speaker);
+    if(json.contains("speaker"))
+        res.speaker = json["speaker"].get<std::string>();
+    if(json.contains("language")) {
+        if(!json["language"].is_string())
+            throw std::runtime_error("language must be a string");
+        res.language = json["language"].get<std::string>();
     }
     if(json.contains("length_scale")) {
         if(json["length_scale"].is_number() == false)
@@ -174,11 +176,22 @@ SynthesisApiParams parseSynthesisApiParams(const std::string_view json_txt)
         res.audio_format = json["audio_format"].get<std::string>();
     }
 
-    if(res.speaker_id.has_value() && (*res.speaker_id < 0 || *res.speaker_id >= voice.modelConfig.numSpeakers))
-        throw std::runtime_error("Speaker ID is out of range");
 
     res.text = piperTextPreprocess(res.text);
     return res;
+}
+
+static void resolveVoiceParams(SynthesisApiParams &params, const piper::Voice &selectedVoice)
+{
+    if(params.speaker) {
+        const auto &speakerMap = selectedVoice.modelConfig.speakerIdMap;
+        if(!speakerMap || !speakerMap->contains(*params.speaker))
+            throw std::runtime_error("Unknown speaker name " + *params.speaker);
+        params.speaker_id = speakerMap->at(*params.speaker);
+    }
+    if(params.speaker_id && (*params.speaker_id < 0 ||
+       *params.speaker_id >= selectedVoice.modelConfig.numSpeakers))
+        throw std::runtime_error("Speaker ID is out of range");
 }
 
 static std::vector<short> resample(std::span<const short> input, size_t orig_sr, size_t out_sr, int channels)
@@ -212,113 +225,19 @@ HttpResponsePtr makeBadRequestResponse(const std::string &msg)
     return resp;
 }
 
-// Awaiter that dispatches per-sentence synthesize() calls across the thread pool.
-// The last task to complete (atomic counter == N) resumes the suspended coroutine.
-struct ParallelSynthAwaiter : drogon::CallbackAwaiter<void>
-{
-    ParallelSynthAwaiter(
-        trantor::EventLoopThreadPool& pool,
-        piper::Voice& voice,
-        const piper::PhonemeData& phonemeData,
-        std::vector<std::vector<int16_t>>& sentenceAudio,
-        std::vector<piper::SynthesisResult>& sentenceResults,
-        std::optional<size_t> speakerId,
-        std::optional<float> noiseScale,
-        std::optional<float> lengthScale,
-        std::optional<float> noiseW)
-        : pool_(pool), voice_(voice), phonemeData_(phonemeData),
-          sentenceAudio_(sentenceAudio), sentenceResults_(sentenceResults),
-          speakerId_(speakerId), noiseScale_(noiseScale),
-          lengthScale_(lengthScale), noiseW_(noiseW) {}
-
-    void await_suspend(std::coroutine_handle<> handle)
-    {
-        const size_t n = phonemeData_.sentences.size();
-        for (size_t i = 0; i < n; i++) {
-            pool_.getNextLoop()->queueInLoop([this, i, n, handle]() {
-                try {
-                    piper::PhonemeData single;
-                    single.sentences.push_back(phonemeData_.sentences[i]);
-                    piper::synthesize(voice_, single, sentenceAudio_[i],
-                                     sentenceResults_[i], nullptr,
-                                     speakerId_, noiseScale_, lengthScale_, noiseW_);
-                } catch (...) {
-                    if (!exceptionCaptured_.test_and_set(std::memory_order_acq_rel))
-                        setException(std::current_exception());
-                }
-                if (completed_.fetch_add(1, std::memory_order_acq_rel) + 1 == n)
-                    handle.resume();
-            });
-        }
-    }
-
-private:
-    trantor::EventLoopThreadPool& pool_;
-    piper::Voice& voice_;
-    const piper::PhonemeData& phonemeData_;
-    std::vector<std::vector<int16_t>>& sentenceAudio_;
-    std::vector<piper::SynthesisResult>& sentenceResults_;
-    std::optional<size_t> speakerId_;
-    std::optional<float> noiseScale_;
-    std::optional<float> lengthScale_;
-    std::optional<float> noiseW_;
-    std::atomic<size_t> completed_{0};
-    std::atomic_flag exceptionCaptured_{};
-};
-
-// Phonemize sequentially, then synthesize sentences in parallel across the pool.
-// Single-sentence texts skip the awaiter and synthesize inline.
 static Task<std::vector<int16_t>> doSynthesis(
+    piper::Voice& selectedVoice,
     const std::string& text,
     std::optional<size_t> speakerId,
     std::optional<float> noiseScale,
     std::optional<float> lengthScale,
     std::optional<float> noiseW)
 {
-    auto phonemeData = piper::phonemize(piperConfig, voice, text);
-    const size_t sentenceCount = phonemeData.sentences.size();
-    if (sentenceCount == 0)
-        co_return {};
-
-    // Fast path: single sentence, synthesize inline without queueInLoop overhead
-    if (sentenceCount == 1) {
-        std::vector<int16_t> audioBuffer;
-        piper::SynthesisResult result{};
-        audioBuffer.reserve(voice.synthesisConfig.sampleRate);
-        piper::synthesize(voice, phonemeData, audioBuffer, result, nullptr,
-                         speakerId, noiseScale, lengthScale, noiseW);
-        co_return audioBuffer;
-    }
-
-    // Multi-sentence: dispatch each sentence to the pool in parallel
-    std::vector<std::vector<int16_t>> sentenceAudio(sentenceCount);
-    std::vector<piper::SynthesisResult> sentenceResults(sentenceCount);
-
-    co_await ParallelSynthAwaiter(
-        synthesizerThreadPool, voice, phonemeData,
-        sentenceAudio, sentenceResults,
-        speakerId, noiseScale, lengthScale, noiseW);
-
-    // Stitch audio in sentence order (sentence silence already embedded by synthesize)
-    size_t totalSamples = 0;
-    for (const auto& audio : sentenceAudio)
-        totalSamples += audio.size();
-
-    std::vector<int16_t> stitched;
-    stitched.reserve(totalSamples);
-    for (auto& audio : sentenceAudio)
-        stitched.insert(stitched.end(), audio.begin(), audio.end());
-
-    // Accumulate stats
-    piper::SynthesisResult totalResult{};
-    for (const auto& r : sentenceResults) {
-        totalResult.inferSeconds += r.inferSeconds;
-        totalResult.audioSeconds += r.audioSeconds;
-    }
-    if (totalResult.audioSeconds > 0)
-        totalResult.realTimeFactor = totalResult.inferSeconds / totalResult.audioSeconds;
-
-    co_return stitched;
+    std::vector<int16_t> audio;
+    piper::SynthesisResult result{};
+    piper::textToAudio(piperConfig, selectedVoice, text, audio, result, nullptr,
+                       speakerId, noiseScale, lengthScale, noiseW);
+    co_return audio;
 }
 
 namespace api
@@ -332,10 +251,12 @@ struct v1 : public HttpController<v1>
     METHOD_LIST_BEGIN
     METHOD_ADD(v1::synthesise, "/synthesise", {Post, Options});
     METHOD_ADD(v1::speakers, "/speakers", Get);
+    METHOD_ADD(v1::languages, "/languages", Get);
     METHOD_LIST_END
 
     Task<HttpResponsePtr> synthesise(const HttpRequestPtr req);
     Task<HttpResponsePtr> speakers(const HttpRequestPtr req);
+    Task<HttpResponsePtr> languages(const HttpRequestPtr req);
 };
 
 struct v1ws : public WebSocketController<v1ws>
@@ -374,8 +295,11 @@ Task<> v1ws::handleNewMessageAsync(WebSocketConnectionPtr wsConnPtr, std::string
         co_return;
 
     SynthesisApiParams params;
+    std::shared_ptr<piper::Voice> selectedVoice;
     try {
         params = parseSynthesisApiParams(message);
+        selectedVoice = selectLanguage(params.language);
+        resolveVoiceParams(params, *selectedVoice);
     }
     catch (const std::exception& e) {
         nlohmann::json resp;
@@ -387,11 +311,11 @@ Task<> v1ws::handleNewMessageAsync(WebSocketConnectionPtr wsConnPtr, std::string
     bool send_opus = params.audio_format.value_or("opus") == "opus";
 
     StreamingOggOpusEncoder encoder(24000, 1);
-    bool ok = speak(params.text, params.speaker_id, [&](const std::span<const short> view) {
+    bool ok = speak(*selectedVoice, params.text, params.speaker_id, [&](const std::span<const short> view) {
         if(view.empty())
             return;
         if(send_opus) {
-            auto pcm = resample(view, voice.synthesisConfig.sampleRate, 24000, 1);
+            auto pcm = resample(view, selectedVoice->synthesisConfig.sampleRate, 24000, 1);
             auto opus = encoder.encode(pcm);
             if(!opus.empty())
                 wsConnPtr->send((char*)opus.data(), opus.size(), WebSocketMessageType::Binary);
@@ -445,8 +369,11 @@ Task<HttpResponsePtr> v1::synthesise(const HttpRequestPtr req)
 
 
     SynthesisApiParams params;
+    std::shared_ptr<piper::Voice> selectedVoice;
     try {
         params = parseSynthesisApiParams(req->getBody());
+        selectedVoice = selectLanguage(params.language);
+        resolveVoiceParams(params, *selectedVoice);
     }
     catch (const std::exception& e) {
         co_return makeBadRequestResponse(e.what());
@@ -454,7 +381,7 @@ Task<HttpResponsePtr> v1::synthesise(const HttpRequestPtr req)
 
     std::vector<int16_t> audio;
     try {
-        audio = co_await doSynthesis(params.text, params.speaker_id,
+        audio = co_await doSynthesis(*selectedVoice, params.text, params.speaker_id,
                                      params.noise_scale, params.length_scale, params.noise_w);
     }
     catch (const std::exception& e) {
@@ -463,7 +390,7 @@ Task<HttpResponsePtr> v1::synthesise(const HttpRequestPtr req)
 
     auto resp = HttpResponse::newHttpResponse();
     if(params.audio_format.value_or("opus") == "opus") {
-        auto pcm = resample(audio, voice.synthesisConfig.sampleRate, 24000, 1);
+        auto pcm = resample(audio, selectedVoice->synthesisConfig.sampleRate, 24000, 1);
         auto opus = encodeOgg(pcm, 24000, 1);
         resp->setContentTypeString("audio/ogg; codecs=opus");
         resp->setBody(std::string(reinterpret_cast<const char*>(opus.data()), opus.size()));
@@ -478,18 +405,30 @@ Task<HttpResponsePtr> v1::synthesise(const HttpRequestPtr req)
 
 Task<HttpResponsePtr> v1::speakers(const HttpRequestPtr req)
 {
+    auto selectedVoice = selectLanguage(std::nullopt);
     auto resp = HttpResponse::newHttpResponse();
     resp->setStatusCode(k200OK);
     resp->setContentTypeCode(CT_APPLICATION_JSON);
 
 
-    const auto& speakerIdMap = voice.modelConfig.speakerIdMap;
+    const auto& speakerIdMap = selectedVoice->modelConfig.speakerIdMap;
     if(speakerIdMap.has_value() == false) {
         resp->setBody("{}");
     }
     else {
         resp->setBody(nlohmann::json(speakerIdMap.value()).dump());
     }
+    co_return resp;
+}
+
+Task<HttpResponsePtr> v1::languages(const HttpRequestPtr req)
+{
+    nlohmann::json body;
+    body["languages"] = availableLanguages();
+    body["active"] = currentLanguage();
+    auto resp = HttpResponse::newHttpResponse();
+    resp->setContentTypeCode(CT_APPLICATION_JSON);
+    resp->setBody(body.dump());
     co_return resp;
 }
 
@@ -545,7 +484,23 @@ Task<HttpResponsePtr> audio::speech(const HttpRequestPtr req)
         co_return makeBadRequestResponse("Text too long");
     params.text = piperTextPreprocess(std::move(inputText));
 
-    // Resolve "voice" to speaker_id (numeric string or case-insensitive name)
+    if(json.contains("language") && json["language"].is_string())
+        params.language = json["language"].get<std::string>();
+    else if(json.contains("model") && json["model"].is_string()) {
+        const auto requestedModel = json["model"].get<std::string>();
+        const auto languages = availableLanguages();
+        if(std::find(languages.begin(), languages.end(), requestedModel) != languages.end())
+            params.language = requestedModel;
+    }
+
+    std::shared_ptr<piper::Voice> selectedVoice;
+    try {
+        selectedVoice = selectLanguage(params.language);
+    } catch(const std::exception &e) {
+        co_return makeBadRequestResponse(e.what());
+    }
+
+    // Resolve "voice" to speaker_id (numeric string or case-insensitive name).
     if(json.contains("voice") && json["voice"].is_string()) {
         auto v = json["voice"].get<std::string>();
         char* end = nullptr;
@@ -553,7 +508,7 @@ Task<HttpResponsePtr> audio::speech(const HttpRequestPtr req)
         if(end != v.c_str() && *end == '\0' && id >= 0) {
             params.speaker_id = static_cast<int64_t>(id);
         } else {
-            const auto& map = voice.modelConfig.speakerIdMap;
+            const auto& map = selectedVoice->modelConfig.speakerIdMap;
             if(map.has_value()) {
                 for(const auto& [name, sid] : *map) {
                     if(name.size() == v.size() && std::equal(name.begin(), name.end(), v.begin(),
@@ -566,16 +521,22 @@ Task<HttpResponsePtr> audio::speech(const HttpRequestPtr req)
         }
     }
 
+    try {
+        resolveVoiceParams(params, *selectedVoice);
+    } catch(const std::exception &e) {
+        co_return makeBadRequestResponse(e.what());
+    }
+
     std::vector<int16_t> audioBuffer;
     try {
-        audioBuffer = co_await doSynthesis(params.text, params.speaker_id,
+        audioBuffer = co_await doSynthesis(*selectedVoice, params.text, params.speaker_id,
                                            params.noise_scale, params.length_scale, params.noise_w);
     }
     catch (const std::exception& e) {
         co_return makeBadRequestResponse(std::string("Synthesis failed: ") + e.what());
     }
 
-    auto pcm = resample(audioBuffer, voice.synthesisConfig.sampleRate, 24000, 1);
+    auto pcm = resample(audioBuffer, selectedVoice->synthesisConfig.sampleRate, 24000, 1);
     auto opus = encodeOgg(pcm, 24000, 1);
 
     auto resp = HttpResponse::newHttpResponse();
