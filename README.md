@@ -19,6 +19,36 @@ and a 1 GiB CMA reservation.
 Model downloads are pinned by revision and SHA-256. The entrypoint
 does not overwrite an existing model with a different checksum.
 
+## Install the RKNPU kernel module on Armbian
+
+The running Armbian system must have Linux headers that match its kernel before
+the out-of-tree RKNPU driver can be built. When building the Armbian image,
+include the headers with `INSTALL_HEADERS=yes`:
+
+```bash
+./compile.sh BOARD=h96-tvbox-3566 BRANCH=edge BUILD_DESKTOP=no BUILD_MINIMAL=no KERNEL_CONFIGURE=yes RELEASE=resolute INSTALL_HEADERS=yes
+```
+
+After booting that image on the RK3566, install the build dependencies and the
+RKNPU module:
+
+```bash
+sudo apt update
+sudo apt install -y build-essential dkms git
+git clone https://github.com/w568w/rknpu-module.git
+cd rknpu-module
+sudo dkms install .
+```
+
+Verify the installation:
+
+```bash
+dkms status
+```
+
+Confirm that the output lists `rknpu` with the status `installed` before
+continuing.
+
 ## Reserve 1 GiB CMA on Armbian
 
 The RK3566 NPU needs a large contiguous-memory reservation. On Armbian systems
