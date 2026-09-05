@@ -190,6 +190,20 @@ validate() {
     verify_no_new_npu_errors_since_baseline
     "$project_dir/scripts/smoke-test.sh"
 
+    REQUEST_COUNT=1 RUN_LONG_TEXT=false \
+        TEST_LANGUAGE=it_it_serena \
+        TEST_TEXT='Ciao, questa e una prova della voce italiana Serena.' \
+        OUTPUT_FILE="${data_dir}/smoke-test-it-it-serena.opus" \
+        RESULT_FILE="${data_dir}/smoke-test-it-it-serena.env" \
+        "$project_dir/scripts/smoke-test.sh"
+
+    REQUEST_COUNT=1 RUN_LONG_TEXT=false \
+        TEST_LANGUAGE=it_it_riccardo \
+        TEST_TEXT='Ciao, questa e una prova della voce italiana Riccardo.' \
+        OUTPUT_FILE="${data_dir}/smoke-test-it-it-riccardo.opus" \
+        RESULT_FILE="${data_dir}/smoke-test-it-it-riccardo.env" \
+        "$project_dir/scripts/smoke-test.sh"
+
     PAROLI_RESTART_POLICY=no docker compose stop paroli-rknn
     sleep 5
 

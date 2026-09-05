@@ -443,7 +443,9 @@ static std::string languageDisplayName(const std::string &language)
         {"en_us", "English (US)"},
         {"zh_cn", "Chinese (Mandarin)"},
         {"de_de", "German"},
-        {"fr_fr", "French"}
+        {"fr_fr", "French"},
+        {"it_it_serena", "Italian (Serena, High)"},
+        {"it_it_riccardo", "Italian (Riccardo, X-Low)"}
     };
     auto found = names.find(language);
     return found == names.end() ? language : found->second;

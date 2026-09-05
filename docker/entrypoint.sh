@@ -35,6 +35,12 @@ case "$RAW_LANG" in
     fr|fr_fr|fr-fr|french)
         LANG_FOLDER="fr_fr"
         ;;
+    it|it_it|it-it|italian|it_it_serena|it-it-serena)
+        LANG_FOLDER="it_it_serena"
+        ;;
+    it_it_riccardo|it-it-riccardo)
+        LANG_FOLDER="it_it_riccardo"
+        ;;
     *)
         LANG_FOLDER="$RAW_LANG"
         ;;
@@ -66,7 +72,7 @@ fi
 for required_file in "$ENCODER_PATH" "$DECODER_PATH" "$CONFIG_PATH"; do
     if [ ! -r "$required_file" ]; then
         echo "ERROR: Model file is not readable: ${required_file}" >&2
-        echo "Available languages: pt_br, en_us, zh_cn, de_de, fr_fr" >&2
+        echo "Available languages: pt_br, en_us, zh_cn, de_de, fr_fr, it_it_serena, it_it_riccardo" >&2
         exit 1
     fi
 done

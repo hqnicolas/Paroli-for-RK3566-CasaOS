@@ -187,7 +187,8 @@ int main(int argc, char *argv[]) {
                chrono::duration<double>(endTime - startTime).count());
 
   const filesystem::path modelRoot = getenv("MODEL_DIR") ? getenv("MODEL_DIR") : "/models";
-  for (const auto &language : {"pt_br", "en_us", "zh_cn", "de_de", "fr_fr"}) {
+  for (const auto &language : {"pt_br", "en_us", "zh_cn", "de_de", "fr_fr",
+                               "it_it_serena", "it_it_riccardo"}) {
     ModelPaths paths{modelRoot / language / "encoder.onnx",
                      modelRoot / language / "decoder-3566.rknn",
                      modelRoot / language / "config.json"};

@@ -54,8 +54,41 @@ curl --fail --show-error \
   --output hello.opus
 ```
 
-Available model IDs are `de_de`, `en_us`, `fr_fr`, `pt_br`, and `zh_cn`.
-The complete request and response contract is in [`src/paroli-server/docs/web_api.md`](src/paroli-server/docs/web_api.md).
+Available model IDs are `de_de`, `en_us`, `fr_fr`, `it_it_riccardo`,
+`it_it_serena`, `pt_br`, and `zh_cn`. The startup `LANGUAGE` aliases `it`,
+`it_it`, `it-IT`, and `italian` select Serena; API requests use the exact model
+IDs. The complete request and response contract is in
+[`src/paroli-server/docs/web_api.md`](src/paroli-server/docs/web_api.md).
+
+### Italian model provenance
+
+Both converted archives contain `encoder.onnx`, `decoder-3566.rknn`, and
+`config.json` inside a directory matching the model ID.
+
+| Model ID | Upstream voice | Quality | Sample rate | Archive size |
+| --- | --- | --- | ---: | ---: |
+| `it_it_serena` | [Serena](https://huggingface.co/rhasspy/piper-voices/tree/1162a9173d0ce503555aed757976b7a9912eae4c/it/it_IT/serena/high) | high | 22,050 Hz | 79,007,884 bytes |
+| `it_it_riccardo` | [Riccardo](https://huggingface.co/rhasspy/piper-voices/tree/1162a9173d0ce503555aed757976b7a9912eae4c/it/it_IT/riccardo/x_low) | x-low | 16,000 Hz | 16,080,280 bytes |
+
+Pinned source SHA-256 checksums:
+
+```text
+743240dae6ecab12cdc3eee9260cbf688a04e066775d0ce28b8007dad12f42d0  it_IT-serena-high.onnx
+ce7e3319aee3b687ab6e8be8d49eae350e5ef942eaf95189dec80fb89110d4ee  it_IT-serena-high.onnx.json
+1368de15f123275a7ef951c9e5e30be0f58a032daa14a0da44037443c1d1d21b  it_IT-riccardo-x_low.onnx
+146ab9c634afe524e9fb7530f2510df7a42fb1db56b52658ca1fb3d98001a62a  it_IT-riccardo-x_low.onnx.json
+```
+
+Packaged archive SHA-256 checksums:
+
+```text
+5eb11aaa393e54ef1fd0272500dd1c0a96ddc58421bfccda9fde4e111350033c  models/it_it_serena.tar.gz
+e1c33fc8dc53fea2e26b2632054ebe2bc9a4fa735925371911ccc8d50d52f747  models/it_it_riccardo.tar.gz
+```
+
+The Piper Voices repository is MIT-licensed. Serena's model card attributes its
+training data under CC-BY-4.0; Riccardo's model card links to the M-AILABS
+dataset for its applicable attribution and license terms.
 
 Public endpoints:
 
@@ -68,13 +101,15 @@ Public endpoints:
 - `ws://DEVICE_IP:8848/api/v1/stream` provides streaming synthesis.
 
 Omitting `audio_format` or selecting `opus` returns Ogg/Opus. Selecting `pcm`
-returns 22050 Hz, signed 16-bit little-endian PCM.
+returns signed 16-bit little-endian PCM at the model's native sample rate: 22,050
+Hz for Serena and the existing models, or 16,000 Hz for Riccardo.
 
 ## Validation policy
 
 The automated rollout enforces all locally measurable gates:
 
 - every synthesis request returns HTTP 200 and begins with `OggS`;
+- explicit Italian requests load and synthesize with both Serena and Riccardo;
 - no new RKNPU timeout, soft reset, wait, submission, or allocation failure;
 - at least 256 MiB of `CmaFree` remains after warm-up and after requests;
 - the warm-up-to-request-sequence CMA drop is no more than 64 MiB;

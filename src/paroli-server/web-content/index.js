@@ -7,6 +7,24 @@ var pcmplayer_opt = {
      flushingTime: 100
 }
 var player;
+var playerSampleRate;
+
+const languageSampleRates = {
+    it_it_riccardo: 16000
+}
+
+function ensurePlayer(language) {
+    let sampleRate = languageSampleRates[language] || 22050
+    if(player && playerSampleRate == sampleRate) {
+        return
+    }
+    if(player) {
+        player.destroy()
+    }
+    let options = Object.assign({}, pcmplayer_opt, {sampleRate: sampleRate})
+    player = new PCMPlayer(options)
+    playerSampleRate = sampleRate
+}
 
 window.onload = function () {
     const languageNames = {
@@ -14,7 +32,9 @@ window.onload = function () {
         en_us: 'English (US)',
         zh_cn: 'Chinese (Mandarin)',
         de_de: 'German',
-        fr_fr: 'French'
+        fr_fr: 'French',
+        it_it_serena: 'Italian (Serena, High)',
+        it_it_riccardo: 'Italian (Riccardo, X-Low)'
     }
     let languageList = document.getElementById('language_select')
     fetch('/api/v1/languages').then(function (response) {
@@ -58,6 +78,7 @@ function runTTS() {
     let str = document.getElementById('txt_input').value
     let speaker = document.getElementById('speaker_select').value
     let language = document.getElementById('language_select').value
+    ensurePlayer(language)
     let data = JSON.stringify({
         text: str,
         language: language,
@@ -65,7 +86,6 @@ function runTTS() {
         audio_format: 'pcm'
     })
     if (ws == null || ws.readyState != 1) {
-        player = new PCMPlayer(pcmplayer_opt);
         reconnectWS(function () {
             ws.send(data);
         });

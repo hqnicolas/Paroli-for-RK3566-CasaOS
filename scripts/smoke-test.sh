@@ -6,6 +6,7 @@ request_count="${REQUEST_COUNT:-20}"
 output_file="${OUTPUT_FILE:-/DATA/AppData/paroli/data/smoke-test.opus}"
 result_file="${RESULT_FILE:-/DATA/AppData/paroli/data/smoke-test-last.env}"
 test_text="${TEST_TEXT:-Hello from the RK3566 text to speech server.}"
+test_language="${TEST_LANGUAGE:-}"
 run_long_text="${RUN_LONG_TEXT:-true}"
 minimum_cma_kb="${MINIMUM_CMA_KB:-262144}"
 maximum_cma_drop_kb="${MAXIMUM_CMA_DROP_KB:-65536}"
@@ -47,7 +48,12 @@ synthesise() {
     request_text="$2"
     request_output="$3"
     escaped_text=$(json_escape "$request_text")
-    payload="{\"text\":\"${escaped_text}\",\"audio_format\":\"opus\"}"
+    if [ -n "$test_language" ]; then
+        escaped_language=$(json_escape "$test_language")
+        payload="{\"text\":\"${escaped_text}\",\"language\":\"${escaped_language}\",\"audio_format\":\"opus\"}"
+    else
+        payload="{\"text\":\"${escaped_text}\",\"audio_format\":\"opus\"}"
+    fi
 
     if [ -n "${PAROLI_TOKEN:-}" ]; then
         http_status=$(curl --fail --silent --show-error \
@@ -140,6 +146,7 @@ timestamp=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 {
     printf 'SMOKE_TEST_UTC=%s\n' "$timestamp"
     printf 'REQUEST_COUNT=%s\n' "$request_count"
+    printf 'TEST_LANGUAGE=%s\n' "$test_language"
     printf 'CMA_BEFORE_KB=%s\n' "$cma_before"
     printf 'CMA_AFTER_WARMUP_KB=%s\n' "$cma_after_warmup"
     printf 'CMA_AFTER_SEQUENCE_KB=%s\n' "$cma_after_sequence"

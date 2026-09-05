@@ -7,6 +7,8 @@
 | `de_de` | German | `"model":"de_de"` or `"language":"de_de"` |
 | `en_us` | English (United States) | `"model":"en_us"` or `"language":"en_us"` |
 | `fr_fr` | French (France) | `"model":"fr_fr"` or `"language":"fr_fr"` |
+| `it_it_riccardo` | Italian (Riccardo, X-Low) | `"model":"it_it_riccardo"` or `"language":"it_it_riccardo"` |
+| `it_it_serena` | Italian (Serena, High) | `"model":"it_it_serena"` or `"language":"it_it_serena"` |
 | `pt_br` | Portuguese (Brazil) | `"model":"pt_br"` or `"language":"pt_br"` |
 | `zh_cn` | Chinese (Mandarin) | `"model":"zh_cn"` or `"language":"zh_cn"` |
 
@@ -29,7 +31,7 @@ model; `/api/v1/speakers` only chooses among speakers inside a multi-speaker mod
 Returns the installed model languages and the currently active language.
 
 ```json
-{"languages":["de_de","en_us","fr_fr","pt_br","zh_cn"],"active":"pt_br"}
+{"languages":["de_de","en_us","fr_fr","it_it_riccardo","it_it_serena","pt_br","zh_cn"],"active":"pt_br"}
 ```
 
 ### /api/v1/speakers
@@ -106,6 +108,8 @@ is valid as the `model` value for `POST /v1/audio/speech`.
     {"id":"de_de","object":"model","owned_by":"paroli","name":"German"},
     {"id":"en_us","object":"model","owned_by":"paroli","name":"English (US)"},
     {"id":"fr_fr","object":"model","owned_by":"paroli","name":"French"},
+    {"id":"it_it_riccardo","object":"model","owned_by":"paroli","name":"Italian (Riccardo, X-Low)"},
+    {"id":"it_it_serena","object":"model","owned_by":"paroli","name":"Italian (Serena, High)"},
     {"id":"pt_br","object":"model","owned_by":"paroli","name":"Portuguese (Brazil)"},
     {"id":"zh_cn","object":"model","owned_by":"paroli","name":"Chinese (Mandarin)"}
   ]
@@ -136,7 +140,9 @@ Use one of the documented model IDs in `model`:
 ```
 
 The bundled models are single-speaker, so `voice` does not select the language.
-For compatibility, it can be omitted or set to `"0"`.
+For compatibility, it can be omitted or set to `"0"`. PCM output uses each
+model's native sample rate: 22,050 Hz for Serena and 16,000 Hz for Riccardo.
+Opus output is resampled to 24,000 Hz as documented above.
 
 ## WebSocket API
 
