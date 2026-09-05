@@ -19,6 +19,84 @@ and a 1 GiB CMA reservation.
 Model downloads are pinned by revision and SHA-256. The entrypoint
 does not overwrite an existing model with a different checksum.
 
+## Reserve 1 GiB CMA on Armbian
+
+The RK3566 NPU needs a large contiguous-memory reservation. On Armbian systems
+that use `/boot/armbianEnv.txt`, add `cma=1G` to the kernel command line before
+deploying Paroli. Armbian documents `armbianEnv.txt` as the preferred place for
+[boot parameters](https://docs.armbian.com/User-Guide_Advanced-Configuration/).
+
+Check the current reservation and confirm that the boot file exists:
+
+```bash
+grep '^CmaTotal:' /proc/meminfo
+test -f /boot/armbianEnv.txt
+grep '^extraargs=' /boot/armbianEnv.txt || true
+```
+
+Back up the boot environment:
+
+```bash
+sudo cp --preserve=all /boot/armbianEnv.txt /boot/armbianEnv.txt.pre-paroli
+```
+
+Edit it:
+
+```bash
+sudo nano /boot/armbianEnv.txt
+```
+
+If there is no `extraargs` line, add:
+
+```text
+extraargs=cma=1G
+```
+
+If `extraargs` already contains other kernel parameters, keep them and append
+`cma=1G` on the same line. Do not add a second `extraargs` assignment. For
+example:
+
+```text
+extraargs=existing_option=value cma=1G
+```
+
+Save the file and reboot:
+
+```bash
+sudo reboot
+```
+
+After the device returns, verify both the active kernel command line and the
+reserved memory:
+
+```bash
+grep -o 'cma=[^ ]*' /proc/cmdline
+grep '^CmaTotal:' /proc/meminfo
+```
+
+The expected reservation is:
+
+```text
+CmaTotal:        1048576 kB
+```
+
+If `cma=1G` is absent from `/proc/cmdline`, the board may boot through
+`/boot/extlinux/extlinux.conf` instead of Armbian's boot script. In that case,
+restore the backup and add `cma=1G` to the existing `APPEND` line in the active
+extlinux entry. Do not create `armbianEnv.txt` on a system that does not already
+use it.
+
+To roll back the Armbian change:
+
+```bash
+sudo cp /boot/armbianEnv.txt.pre-paroli /boot/armbianEnv.txt
+sudo reboot
+```
+
+Reserving 1 GiB for CMA removes that memory from normal allocations, so confirm
+the device has enough remaining RAM for Armbian, Docker, and other services.
+
+
 ## Staged deployment
 
 Run these commands in order on the RK3566. Root is required so kernel messages
@@ -60,35 +138,6 @@ Available model IDs are `de_de`, `en_us`, `fr_fr`, `it_it_riccardo`,
 IDs. The complete request and response contract is in
 [`src/paroli-server/docs/web_api.md`](src/paroli-server/docs/web_api.md).
 
-### Italian model provenance
-
-Both converted archives contain `encoder.onnx`, `decoder-3566.rknn`, and
-`config.json` inside a directory matching the model ID.
-
-| Model ID | Upstream voice | Quality | Sample rate | Archive size |
-| --- | --- | --- | ---: | ---: |
-| `it_it_serena` | [Serena](https://huggingface.co/rhasspy/piper-voices/tree/1162a9173d0ce503555aed757976b7a9912eae4c/it/it_IT/serena/high) | high | 22,050 Hz | 79,007,884 bytes |
-| `it_it_riccardo` | [Riccardo](https://huggingface.co/rhasspy/piper-voices/tree/1162a9173d0ce503555aed757976b7a9912eae4c/it/it_IT/riccardo/x_low) | x-low | 16,000 Hz | 16,080,280 bytes |
-
-Pinned source SHA-256 checksums:
-
-```text
-743240dae6ecab12cdc3eee9260cbf688a04e066775d0ce28b8007dad12f42d0  it_IT-serena-high.onnx
-ce7e3319aee3b687ab6e8be8d49eae350e5ef942eaf95189dec80fb89110d4ee  it_IT-serena-high.onnx.json
-1368de15f123275a7ef951c9e5e30be0f58a032daa14a0da44037443c1d1d21b  it_IT-riccardo-x_low.onnx
-146ab9c634afe524e9fb7530f2510df7a42fb1db56b52658ca1fb3d98001a62a  it_IT-riccardo-x_low.onnx.json
-```
-
-Packaged archive SHA-256 checksums:
-
-```text
-5eb11aaa393e54ef1fd0272500dd1c0a96ddc58421bfccda9fde4e111350033c  models/it_it_serena.tar.gz
-e1c33fc8dc53fea2e26b2632054ebe2bc9a4fa735925371911ccc8d50d52f747  models/it_it_riccardo.tar.gz
-```
-
-The Piper Voices repository is MIT-licensed. Serena's model card attributes its
-training data under CC-BY-4.0; Riccardo's model card links to the M-AILABS
-dataset for its applicable attribution and license terms.
 
 Public endpoints:
 
