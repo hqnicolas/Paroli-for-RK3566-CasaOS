@@ -665,8 +665,14 @@ void synthesize(Voice &voice, const PhonemeData &phonemeData,
       std::optional<xt::xarray<float>> g;
       if(params.count("g"))
         g = std::move(params["g"]);
-      auto& y_mask = params["y_mask"];
-      auto& z = params["z"];
+      auto yMaskIt = params.find("y_mask");
+      auto zIt = params.find("z");
+      if (yMaskIt == params.end() || zIt == params.end())
+        throw std::runtime_error("Encoder must provide z and y_mask outputs");
+      auto& y_mask = yMaskIt->second;
+      auto& z = zIt->second;
+      if (z.dimension() != 3 || y_mask.dimension() != 3)
+        throw std::runtime_error("Encoder z and y_mask outputs must be rank 3");
 
       size_t nslices = z.shape()[2];
       if(nslices != y_mask.shape()[2])
