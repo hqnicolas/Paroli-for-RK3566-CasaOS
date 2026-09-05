@@ -54,9 +54,15 @@ curl --fail --show-error \
   --output hello.opus
 ```
 
+Available model IDs are `de_de`, `en_us`, `fr_fr`, `pt_br`, and `zh_cn`.
+The complete request and response contract is in [`src/paroli-server/docs/web_api.md`](src/paroli-server/docs/web_api.md).
+
 Public endpoints:
 
 - `GET /api/v1/languages` lists the installed languages and the active model.
+- `GET /v1/models` returns every language using the OpenAI model-list shape.
+- `GET /v1/audio/voices` returns every language as a selectable voice/model.
+- `POST /v1/audio/speech` accepts a returned language ID in `model` or `language`.
 - `POST /api/v1/synthesise` accepts `{"text":"…","language":"en_us","audio_format":"opus"}`.
 - `GET /api/v1/speakers` is the health-check endpoint.
 - `ws://DEVICE_IP:8848/api/v1/stream` provides streaming synthesis.

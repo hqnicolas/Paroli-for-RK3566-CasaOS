@@ -436,14 +436,77 @@ Task<HttpResponsePtr> v1::languages(const HttpRequestPtr req)
 
 namespace v1
 {
+static std::string languageDisplayName(const std::string &language)
+{
+    static const std::map<std::string, std::string> names{
+        {"pt_br", "Portuguese (Brazil)"},
+        {"en_us", "English (US)"},
+        {"zh_cn", "Chinese (Mandarin)"},
+        {"de_de", "German"},
+        {"fr_fr", "French"}
+    };
+    auto found = names.find(language);
+    return found == names.end() ? language : found->second;
+}
+
+struct models : public HttpController<models>
+{
+    METHOD_LIST_BEGIN
+    ADD_METHOD_TO(models::list, "/v1/models", Get);
+    METHOD_LIST_END
+
+    Task<HttpResponsePtr> list(const HttpRequestPtr req);
+};
+
+Task<HttpResponsePtr> models::list(const HttpRequestPtr req)
+{
+    nlohmann::json body;
+    body["object"] = "list";
+    body["data"] = nlohmann::json::array();
+    for(const auto &language : availableLanguages()) {
+        body["data"].push_back({
+            {"id", language},
+            {"object", "model"},
+            {"owned_by", "paroli"},
+            {"name", languageDisplayName(language)}
+        });
+    }
+    auto resp = HttpResponse::newHttpResponse();
+    resp->setContentTypeCode(CT_APPLICATION_JSON);
+    resp->setBody(body.dump());
+    co_return resp;
+}
+
 struct audio : public HttpController<audio>
 {
     METHOD_LIST_BEGIN
     METHOD_ADD(audio::speech, "/speech", {Post, Options});
+    METHOD_ADD(audio::voices, "/voices", Get);
     METHOD_LIST_END
 
     Task<HttpResponsePtr> speech(const HttpRequestPtr req);
+    Task<HttpResponsePtr> voices(const HttpRequestPtr req);
 };
+
+Task<HttpResponsePtr> audio::voices(const HttpRequestPtr req)
+{
+    nlohmann::json body;
+    body["object"] = "list";
+    body["data"] = nlohmann::json::array();
+    for(const auto &language : availableLanguages()) {
+        body["data"].push_back({
+            {"id", language},
+            {"object", "voice"},
+            {"language", language},
+            {"model", language},
+            {"name", languageDisplayName(language)}
+        });
+    }
+    auto resp = HttpResponse::newHttpResponse();
+    resp->setContentTypeCode(CT_APPLICATION_JSON);
+    resp->setBody(body.dump());
+    co_return resp;
+}
 
 Task<HttpResponsePtr> audio::speech(const HttpRequestPtr req)
 {
