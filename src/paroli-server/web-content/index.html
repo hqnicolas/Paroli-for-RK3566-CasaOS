@@ -1,63 +1,134 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-
 <head>
-    <meta charset="UTF-8">
-    <title>TTS powered by Streaming Piper</title>
-    <style>
-        body {
-            font-family: sans-serif;
-            font-size: 1.3em;
-        }
-
-        #container {
-            margin: 0 auto;
-            max-width: 1200px;
-        }
-
-        #txt_input {
-            width: 100%;
-            height: 100px;
-            font-size: 1.1em;
-        }
-
-        #btn_run {
-            width: 100%;
-            height: 50px;
-            font-size: 1.1em;
-        }
-        #language_select, #speaker_select {
-            width: 50%;
-            height: 50px;
-            font-size: 1.1em;
-        }
-        label {
-            font-size: 1.1em;
-        }
-        .greyout-text {
-            opacity: 0.5;
-        }
-    </style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Paroli RK3566 Neural TTS</title>
+  <link rel="stylesheet" href="./styles.css">
 </head>
-
 <body>
-  <div id="container" style="max-width: 1200px; margin: 0 auto;">
-    <h1>TTS powered by Paroli</h1>
-    <p>Enter text to be spoken and click the button to hear it.</p>
-    <textarea id="txt_input" style="width: 100%; height: 11em; resize: vertical">C++ is a high-level, general-purpose programming language created by Danish computer scientist Bjarne Stroustrup. </textarea>
-    <div style="display: flex; flex-direction: row; justify-content: space-between; margin-bottom: 0.5em; margin-top: 1em">
-        <label for="language_select">Language:</label>
-        <select id="language_select"></select>
-    </div>
-    <div id="speaker_controls" style="display: flex; flex-direction: row; justify-content: space-between; margin-bottom: 0.5em; margin-top: 1em">
-        <label id="speaker_select_label" for="speaker_select">Speaker:</label>
-        <select id="speaker_select">
-            <!-- Will be populated by JS -->
-        </select>
-    </div>
-    <button id="btn_run" onclick="runTTS()">Speak!</button>
-    <script type="text/javascript" src="./pcm-player.js"></script>
-    <script type="text/javascript" src="index.js"></script>
-  </div>
+  <main class="shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">LOCAL TEXT TO SPEECH</p>
+        <h1>Paroli <span>RK3566</span></h1>
+        <p class="subtitle">High-performance neural speech synthesis powered by Piper on the Rockchip NPU.</p>
+      </div>
+      <div class="device-pill"><i></i> RKNPU ready</div>
+    </header>
+
+    <section class="panel input-panel" aria-labelledby="input-title">
+      <div class="section-heading">
+        <div>
+          <p class="step">01 / TEXT INPUT</p>
+          <h2 id="input-title">Enter text or choose files</h2>
+        </div>
+        <p id="limit-summary" class="limit-summary">Up to 64 KB text · RKNPU accelerated</p>
+      </div>
+
+      <form id="tts-form">
+        <label id="drop-zone" class="drop-zone" for="text-file-input">
+          <input id="text-file-input" type="file" accept=".txt,.text,.md,.json,text/plain" multiple>
+          <span class="upload-icon" aria-hidden="true">📄</span>
+          <strong id="drop-title">Drop text files (.txt, .md) here</strong>
+          <span id="drop-detail">or click to browse multiple files from your device</span>
+        </label>
+
+        <div class="choice-divider"><span>or enter text directly</span></div>
+
+        <div class="textarea-container">
+          <textarea id="txt-input" rows="4" placeholder="Enter text to be spoken and click Generate Speech to hear it..." aria-label="Text to speak">C++ is a high-level, general-purpose programming language created by Danish computer scientist Bjarne Stroustrup.</textarea>
+          <div class="textarea-footer">
+            <span id="char-count" class="char-count">106 characters</span>
+            <div class="textarea-actions">
+              <button id="clear-text-btn" class="text-button" type="button">Clear</button>
+              <button id="save-snippet-btn" class="secondary-button mini-btn" type="button">Save to list</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="files-section" class="files-section" hidden>
+          <div class="files-header">
+            <div>
+              <strong id="files-title">Saved Texts & Files</strong>
+              <span id="files-count" class="files-count">0 / 10</span>
+            </div>
+            <button id="clear-all-files" class="text-button" type="button">Clear all</button>
+          </div>
+          <div id="files-list" class="files-list"></div>
+        </div>
+
+        <div class="controls">
+          <label>
+            <span>Language / Voice</span>
+            <select id="language-select" name="language"></select>
+          </label>
+          <label id="speaker-controls" hidden>
+            <span id="speaker-select-label">Speaker</span>
+            <select id="speaker-select" name="speaker"></select>
+          </label>
+          <div class="speed-control-card">
+            <div class="speed-label-row">
+              <span>Speaking Speed</span>
+              <strong id="speed-value">1.00× (Normal)</strong>
+            </div>
+            <input type="range" id="speed-slider" min="0.5" max="2.0" step="0.05" value="1.0" class="styled-slider" aria-label="Speaking speed">
+            <div class="speed-ticks">
+              <span>0.5× (Faster)</span>
+              <span>1.0×</span>
+              <span>2.0× (Slower)</span>
+            </div>
+          </div>
+        </div>
+
+        <p id="form-error" class="error-message" role="alert" hidden></p>
+        <button id="speak-button" class="primary-button" type="submit">
+          <span id="speak-button-text">Generate Speech</span><b aria-hidden="true">→</b>
+        </button>
+      </form>
+    </section>
+
+    <section id="job-panel" class="panel job-panel" aria-live="polite" hidden>
+      <div class="section-heading">
+        <div>
+          <p class="step">02 / PROCESSING</p>
+          <h2>Synthesizing audio</h2>
+        </div>
+        <span id="status-badge" class="status-badge">Processing</span>
+      </div>
+      <div class="progress-track" aria-label="Synthesis progress">
+        <div id="progress-bar" class="progress-bar indeterminate"></div>
+      </div>
+      <div class="progress-copy">
+        <strong id="progress-title">Running neural synthesis on Rockchip NPU…</strong>
+        <span id="progress-detail">Accelerated with RKNPU2</span>
+      </div>
+    </section>
+
+    <section id="result-panel" class="panel result-panel" hidden>
+      <div class="section-heading result-heading">
+        <div>
+          <p class="step">03 / AUDIO</p>
+          <h2>Speech Generated</h2>
+        </div>
+        <div class="result-actions">
+          <button id="copy-text-btn" class="secondary-button" type="button">Copy text</button>
+          <button id="download-button" class="secondary-button download-btn" type="button">Download .ogg</button>
+        </div>
+      </div>
+      <div id="result-meta" class="result-meta"></div>
+
+      <div class="player-wrapper">
+        <audio id="audio-player" class="audio-player" controls preload="auto"></audio>
+      </div>
+    </section>
+
+    <footer>
+      <span>Paroli Neural TTS · RKNN</span>
+      <a href="/v1/models" target="_blank" rel="noopener">API documentation</a>
+    </footer>
+  </main>
+  <script src="./app.js" defer></script>
 </body>
 </html>
